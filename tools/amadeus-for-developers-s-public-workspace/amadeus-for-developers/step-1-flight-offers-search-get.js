@@ -13,6 +13,12 @@
 const executeFunction = async ({ originLocationCode, destinationLocationCode, departureDate, returnDate, adults = 2, max = 5 }) => {
   const url = 'https://test.api.amadeus.com/v2/shopping/flight-offers';
   const token = process.env.AMADEUS_FOR_DEVELOPERS_S_PUBLIC_WORKSPACE_API_KEY;
+  
+  // Add logging to debug token issues
+  console.log('Token exists:', !!token);
+  console.log('Token length:', token ? token.length : 0);
+  console.log('First 10 chars of token:', token ? token.substring(0, 10) + '...' : 'NO TOKEN');
+  
   try {
     // Construct the URL with query parameters
     const queryParams = new URLSearchParams({
@@ -29,6 +35,8 @@ const executeFunction = async ({ originLocationCode, destinationLocationCode, de
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`
     };
+    
+    console.log('Making request to:', `${url}?${queryParams.toString()}`);
 
     // Perform the fetch request
     const response = await fetch(`${url}?${queryParams.toString()}`, {
@@ -36,18 +44,45 @@ const executeFunction = async ({ originLocationCode, destinationLocationCode, de
       headers
     });
 
+    console.log('Response status:', response.status);
+    console.log('Response headers:', response.headers);
+
+    // Get response text first to see what we're getting
+    const responseText = await response.text();
+    console.log('Response text:', responseText);
+
     // Check if the response was successful
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData);
+      let errorData;
+      try {
+        errorData = JSON.parse(responseText);
+      } catch (e) {
+        errorData = { message: responseText };
+      }
+      
+      console.error('API Error Response:', JSON.stringify(errorData, null, 2));
+      
+      // Return more detailed error information
+      return { 
+        error: 'Flight search failed',
+        status: response.status,
+        details: errorData,
+        message: errorData.errors ? errorData.errors[0].detail : errorData.message
+      };
     }
 
     // Parse and return the response data
-    const data = await response.json();
+    const data = JSON.parse(responseText);
     return data;
   } catch (error) {
-    console.error('Error searching for flight offers:', error);
-    return { error: 'An error occurred while searching for flight offers.' };
+    console.error('Error searching for flight offers:', error.message);
+    console.error('Error stack:', error.stack);
+    
+    return { 
+      error: 'An error occurred while searching for flight offers.',
+      details: error.message,
+      type: error.constructor.name
+    };
   }
 };
 
@@ -90,7 +125,7 @@ const apiTool = {
             description: 'The maximum number of flight offers to return.'
           }
         },
-        required: ['originLocationCode', 'destinationLocationCode', 'departureDate', 'returnDate']
+        required: ['originLocationCode', 'destinationLocationCode', 'departureDate']
       }
     }
   }
