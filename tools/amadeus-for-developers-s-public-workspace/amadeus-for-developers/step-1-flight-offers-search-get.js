@@ -1,95 +1,102 @@
 /**
+ * Function to get access token from Amadeus
+ */
+const getAccessToken = async () => {
+  const clientId = process.env.AMADEUS_CLIENT_ID || process.env.AMADEUS_API_KEY;
+  const clientSecret = process.env.AMADEUS_CLIENT_SECRET || process.env.AMADEUS_API_SECRET;
+  
+  if (!clientId || !clientSecret) {
+    throw new Error('Missing Amadeus credentials. Please set AMADEUS_CLIENT_ID and AMADEUS_CLIENT_SECRET');
+  }
+  
+  const tokenUrl = 'https://test.api.amadeus.com/v1/security/oauth2/token';
+  const body = new URLSearchParams({
+    client_id: clientId,
+    client_secret: clientSecret,
+    grant_type: 'client_credentials'
+  });
+  
+  const response = await fetch(tokenUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded'
+    },
+    body: body.toString()
+  });
+  
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Failed to get access token: ${error}`);
+  }
+  
+  const data = await response.json();
+  return data.access_token;
+};
+
+/**
  * Function to search for flight offers using the Amadeus API.
- *
- * @param {Object} args - Arguments for the flight offers search.
- * @param {string} args.originLocationCode - The IATA code of the origin location.
- * @param {string} args.destinationLocationCode - The IATA code of the destination location.
- * @param {string} args.departureDate - The departure date in YYYY-MM-DD format.
- * @param {string} args.returnDate - The return date in YYYY-MM-DD format.
- * @param {number} [args.adults=2] - The number of adults traveling.
- * @param {number} [args.max=5] - The maximum number of flight offers to return.
- * @returns {Promise<Object>} - The result of the flight offers search.
  */
 const executeFunction = async ({ originLocationCode, destinationLocationCode, departureDate, returnDate, adults = 2, max = 5 }) => {
   const url = 'https://test.api.amadeus.com/v2/shopping/flight-offers';
-  const token = process.env.AMADEUS_FOR_DEVELOPERS_S_PUBLIC_WORKSPACE_API_KEY;
-  
-  // Add logging to debug token issues
-  console.log('Token exists:', !!token);
-  console.log('Token length:', token ? token.length : 0);
-  console.log('First 10 chars of token:', token ? token.substring(0, 10) + '...' : 'NO TOKEN');
   
   try {
+    // Get a fresh access token
+    console.log('Getting access token...');
+    const accessToken = await getAccessToken();
+    console.log('Got access token, length:', accessToken.length);
+    
     // Construct the URL with query parameters
     const queryParams = new URLSearchParams({
       originLocationCode,
       destinationLocationCode,
       departureDate,
-      returnDate,
       adults: adults.toString(),
       max: max.toString(),
     });
+    
+    if (returnDate) {
+      queryParams.append('returnDate', returnDate);
+    }
 
-    // Set up headers for the request
+    // Set up headers with the access token
     const headers = {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
     };
     
-    console.log('Making request to:', `${url}?${queryParams.toString()}`);
-
+    console.log('Searching flights...');
+    
     // Perform the fetch request
     const response = await fetch(`${url}?${queryParams.toString()}`, {
       method: 'GET',
       headers
     });
 
-    console.log('Response status:', response.status);
-    console.log('Response headers:', response.headers);
-
-    // Get response text first to see what we're getting
-    const responseText = await response.text();
-    console.log('Response text:', responseText);
-
     // Check if the response was successful
     if (!response.ok) {
-      let errorData;
-      try {
-        errorData = JSON.parse(responseText);
-      } catch (e) {
-        errorData = { message: responseText };
-      }
+      const errorData = await response.json();
+      console.error('API Error:', JSON.stringify(errorData, null, 2));
       
-      console.error('API Error Response:', JSON.stringify(errorData, null, 2));
-      
-      // Return more detailed error information
       return { 
         error: 'Flight search failed',
         status: response.status,
-        details: errorData,
-        message: errorData.errors ? errorData.errors[0].detail : errorData.message
+        details: errorData
       };
     }
 
     // Parse and return the response data
-    const data = JSON.parse(responseText);
+    const data = await response.json();
     return data;
   } catch (error) {
-    console.error('Error searching for flight offers:', error.message);
-    console.error('Error stack:', error.stack);
-    
+    console.error('Error:', error.message);
     return { 
       error: 'An error occurred while searching for flight offers.',
-      details: error.message,
-      type: error.constructor.name
+      details: error.message
     };
   }
 };
 
-/**
- * Tool configuration for searching flight offers using the Amadeus API.
- * @type {Object}
- */
+// Rest of the file remains the same...
 const apiTool = {
   function: executeFunction,
   definition: {
