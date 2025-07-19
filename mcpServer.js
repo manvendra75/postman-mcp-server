@@ -87,20 +87,82 @@ async function run() {
 
   if (isSSE) {
     const app = express();
+    const transports = {};
+    const servers = {};
+
+    // Add middleware
     app.use(cors());
+    app.use(express.json());
+    
+    // Health check endpoint
     app.get("/health", (req, res) => {
       res.json({ status: "ok", message: "MCP Server is running" });
     });
 
+    // Root endpoint
     app.get("/", (req, res) => {
       res.json({ 
         message: "Amadeus MCP Server",
-        endpoints: ["/health", "/sse", "/messages"],
-        tools: tools.length
+        endpoints: ["/health", "/sse", "/messages", "/api/call-tool", "/api/tools"],
+        availableTools: tools.map(t => t.definition.function.name)
       });
-    });    const transports = {};
-    const servers = {};
+    });
 
+    // REST endpoint for direct tool calls (for n8n integration)
+    app.post("/api/call-tool", async (req, res) => {
+      try {
+        const { toolName, arguments: args } = req.body;
+        
+        if (!toolName) {
+          return res.status(400).json({ 
+            error: "Missing required field: toolName" 
+          });
+        }
+        
+        // Find the requested tool
+        const tool = tools.find(t => t.definition.function.name === toolName);
+        if (!tool) {
+          return res.status(404).json({ 
+            error: `Tool '${toolName}' not found`,
+            availableTools: tools.map(t => t.definition.function.name)
+          });
+        }
+        
+        // Validate required parameters
+        const requiredParams = tool.definition?.function?.parameters?.required || [];
+        for (const param of requiredParams) {
+          if (!(param in args)) {
+            return res.status(400).json({
+              error: `Missing required parameter: ${param}`,
+              requiredParameters: requiredParams
+            });
+          }
+        }
+        
+        // Execute the tool
+        console.log(`Executing tool: ${toolName}`, args);
+        const result = await tool.function(args);
+        res.json(result);
+      } catch (error) {
+        console.error("Tool execution error:", error);
+        res.status(500).json({ 
+          error: error.message,
+          stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
+      }
+    });
+
+    // List available tools endpoint
+    app.get("/api/tools", async (req, res) => {
+      const toolList = tools.map(tool => ({
+        name: tool.definition.function.name,
+        description: tool.definition.function.description,
+        parameters: tool.definition.function.parameters
+      }));
+      res.json({ tools: toolList });
+    });
+
+    // SSE endpoint for MCP protocol
     app.get("/sse", async (_req, res) => {
       // Create a new Server instance for each session
       const server = new Server(
@@ -130,6 +192,7 @@ async function run() {
       await server.connect(transport);
     });
 
+    // Messages endpoint for MCP protocol
     app.post("/messages", async (req, res) => {
       const sessionId = req.query.sessionId;
       const transport = transports[sessionId];
@@ -143,8 +206,9 @@ async function run() {
     });
 
     const port = process.env.PORT || 3001;
-    app.listen(port, () => {
+    app.listen(port, '0.0.0.0', () => {
       console.log(`[SSE Server] running on port ${port}`);
+      console.log(`REST API available at http://0.0.0.0:${port}/api/call-tool`);
     });
   } else {
     // stdio mode: single server instance
