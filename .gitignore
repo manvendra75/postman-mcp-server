@@ -1,10 +1,15 @@
-# Node modules
+ Node modules
 node_modules/
 
-# Environment variables
+# Environment variables (but not the example)
 .env
-.env local
-.env .production
+.env.local
+.env.production
+.env.development
 
-#But allow .env.example
+# But allow .env.example
 !.env.example
+
+# OS files
+.DS_Store
+
