@@ -2,6 +2,7 @@
 
 import dotenv from "dotenv";
 import express from "express";
+import cors from "cors";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
@@ -86,7 +87,18 @@ async function run() {
 
   if (isSSE) {
     const app = express();
-    const transports = {};
+    app.use(cors());
+    app.get("/health", (req, res) => {
+      res.json({ status: "ok", message: "MCP Server is running" });
+    });
+
+    app.get("/", (req, res) => {
+      res.json({ 
+        message: "Amadeus MCP Server",
+        endpoints: ["/health", "/sse", "/messages"],
+        tools: tools.length
+      });
+    });    const transports = {};
     const servers = {};
 
     app.get("/sse", async (_req, res) => {
